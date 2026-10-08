@@ -2,15 +2,17 @@
 
 Issues met during the build, in the order they were solved.
 
-## 1. Spanning-tree instability after connecting the wireless controller
+## 1. Spanning-tree instability with the wireless controller connected
 
 **Symptoms.** Links cycling between blocking and forwarding, VLAN interfaces going down, OSPF neighbors dropping with "dead timer expired", HSRP state changes and clients failing DHCP.
 
-**Isolation.** The network was stable with the controller's switch port shut and unstable with it up. The controller was removed and re-added in stages (management VLAN first, then one VLAN at a time) with the same regression tests after each stage. BPDU guard was enabled on the controller-facing port.
+**Isolation.** The network was stable with the controller's switch port shut and unstable with it up. The controller was removed and re-added in stages (management VLAN first, then one VLAN at a time) with the same regression tests after each stage. BPDU guard was enabled on the controller-facing port as a diagnostic.
 
-**Root cause.** BPDU guard immediately err-disabled the port: the controller was returning BPDUs to the switch.
+**Finding.** BPDU guard err-disabled the port straight away (`%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port GigabitEthernet1/0/23`), so the switch was receiving BPDUs on a port that should be an edge port.
 
-**Fix.** `spanning-tree bpdufilter enable` and `spanning-tree portfast trunk` on that port. This is acceptable only because the controller is single-homed, so no loop can form through it.
+**Interpretation.** A production Cisco WLC does not run spanning tree and does not send BPDUs, so this is treated as behavior of the Packet Tracer controller model, not of real hardware. The EtherChannel fault in item 3 was present in the same period and also contributed to the instability, so the controller port was not the only cause.
+
+**Fix.** `spanning-tree portfast trunk` and `spanning-tree bpdufilter enable` on that port, so the switch neither sends BPDUs to the controller nor acts on any it receives. This is acceptable only because the controller is single-homed and no loop can form through it. On real equipment the port would use PortFast trunk with BPDU guard left on.
 
 ## 2. Two HSRP active routers on VLAN 60
 
