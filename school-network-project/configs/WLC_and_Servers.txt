@@ -42,7 +42,8 @@ WIRELESS > All APs > (each AP)
 
 Packet Tracer limitations (document, don't "fix"):
   - Management traffic is untagged -> switch port uses native VLAN 10.
-  - Controller reflects BPDUs -> switch port uses bpdufilter.
+  - Switch receives BPDUs on the controller port (a real WLC sends none)
+    -> switch port uses bpdufilter.
   - Central switching does not tag client VLANs -> FlexConnect local switching used.
   - NTP pages unsupported -> clock set manually (COMMANDS > Set Time).
   - Summary page may show Management IP 0.0.0.0 / 192.168.1.1 (display bug).
