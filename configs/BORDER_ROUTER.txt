@@ -1,0 +1,108 @@
+! =====================================================================
+!  BORDER_ROUTER - Clean configuration
+!  School Network Project | ISR4331 + NIM-2T (Packet Tracer)
+!  Role : Internet edge - OSPF to both cores, PAT, dual ISP
+!         (ISPA primary, ISPB floating backup)
+!  Placeholders to replace before pasting: <ADMIN_SECRET>, <NTP_KEY>
+! =====================================================================
+enable
+configure terminal
+!
+! ---------- 1. BASIC SETTINGS ----------
+hostname BORDER_ROUTER
+service password-encryption
+service timestamps log datetime msec
+clock timezone PHT 8 0
+username admin privilege 15 secret <ADMIN_SECRET>
+ip domain-name schoolnetwork.local
+crypto key generate rsa general-keys modulus 2048
+ip ssh version 2
+!
+! ---------- 2. INSIDE INTERFACES (to the cores) ----------
+interface GigabitEthernet0/0/0
+ description ROUTED_TO_CORE_SW1
+ ip address 10.0.0.1 255.255.255.252
+ ip nat inside
+ no shutdown
+exit
+interface GigabitEthernet0/0/1
+ description ROUTED_TO_CORE_SW2
+ ip address 10.0.0.5 255.255.255.252
+ ip nat inside
+ no shutdown
+exit
+interface GigabitEthernet0/0/2
+ description UNUSED
+ no ip address
+ shutdown
+exit
+!
+! ---------- 3. OUTSIDE INTERFACES (to the ISPs) ----------
+interface Serial0/1/0
+ description WAN_TO_ISPA_PRIMARY
+ ip address 203.0.113.1 255.255.255.252
+ ip nat outside
+ no shutdown
+exit
+interface Serial0/1/1
+ description WAN_TO_ISPB_BACKUP
+ ip address 198.51.100.1 255.255.255.252
+ ip nat outside
+ no shutdown
+exit
+!
+! ---------- 4. LOOPBACK ----------
+interface Loopback0
+ description OSPF_ROUTER_ID
+ ip address 1.1.1.1 255.255.255.255
+exit
+!
+! ---------- 5. DEFAULT ROUTES (ISPA primary, ISPB floating AD 5) ----------
+ip route 0.0.0.0 0.0.0.0 203.0.113.2
+ip route 0.0.0.0 0.0.0.0 198.51.100.2 5
+!
+! ---------- 6. OSPF (injects the default route into the cores) ----------
+router ospf 1
+ router-id 1.1.1.1
+ log-adjacency-changes
+ passive-interface Serial0/1/0
+ passive-interface Serial0/1/1
+ passive-interface Loopback0
+ network 10.0.0.0 0.0.0.3 area 0
+ network 10.0.0.4 0.0.0.3 area 0
+ network 1.1.1.1 0.0.0.0 area 0
+ default-information originate
+exit
+!
+! ---------- 7. NAT / PAT ----------
+! One school-owned public block (203.0.113.16/29) routed by BOTH ISPs,
+! so the public IP stays the same during ISP failover.
+access-list 1 remark NAT_INSIDE_NETWORKS
+access-list 1 permit 10.1.0.0 0.0.255.255
+access-list 1 permit 10.0.0.0 0.0.0.3
+access-list 1 permit 10.0.0.4 0.0.0.3
+ip nat pool SCHOOL_PUBLIC 203.0.113.17 203.0.113.17 netmask 255.255.255.248
+ip nat inside source list 1 pool SCHOOL_PUBLIC overload
+!
+! ---------- 8. NTP ----------
+ntp authentication-key 1 md5 <NTP_KEY>
+ntp authenticate
+ntp trusted-key 1
+ntp server 10.1.50.10 key 1
+!
+! ---------- 9. CONSOLE & SSH ACCESS ----------
+ip access-list standard MGMT_ONLY
+ permit 10.1.10.0 0.0.0.255
+exit
+line con 0
+ login local
+ exec-timeout 10 0
+line vty 0 4
+ access-class MGMT_ONLY in
+ login local
+ transport input ssh
+ exec-timeout 10 0
+exit
+!
+end
+write memory
