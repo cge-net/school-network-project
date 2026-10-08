@@ -86,7 +86,7 @@ Problems found and fixed during the build. Full write-up: [docs/troubleshooting.
 
 | Symptom | Root cause | Fix |
 |---|---|---|
-| Network-wide STP instability after connecting the WLC | Controller reflected BPDUs back to the switch (caught by BPDU guard) | BPDU filter on the single-homed controller port |
+| STP instability with the WLC connected | BPDU guard showed the switch receiving BPDUs on the controller port. A real WLC sends none, so this is simulator behavior; an EtherChannel fault at the time also contributed | PortFast trunk and BPDU filter on the single-homed controller port |
 | Both cores HSRP active for VLAN 60 | ACL ending in `deny ip any any` dropped HSRP hellos on the SVI | Permit HSRP between the two core SVI addresses |
 | EtherChannel members suspended | Port-channel and member trunk settings did not match | Rebuilt the bundle, configuring the port-channel after joining clean members |
 | Wireless clients not getting addresses in their VLAN | Simulator's controller does not tag client VLANs | FlexConnect local switching with trunked AP ports |
