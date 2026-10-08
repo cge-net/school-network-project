@@ -104,7 +104,8 @@ exit
 !
 ! ---------- 8. WLC UPLINK ----------
 ! Native VLAN 10: Packet Tracer's WLC sends management untagged.
-! bpdufilter: the WLC reflects BPDUs (caught by BPDU guard during build).
+! bpdufilter: the switch received BPDUs on this port in Packet Tracer (BPDU guard
+! err-disabled it). A real WLC sends no BPDUs; there, keep BPDU guard instead.
 ! Safe only because the WLC is single-homed - never add a 2nd WLC link with this.
 interface GigabitEthernet1/0/23
  description TRUNK_TO_WLC-3504
