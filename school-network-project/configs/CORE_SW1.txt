@@ -1,0 +1,291 @@
+! =====================================================================
+!  CORE_SW1 - Clean configuration
+!  School Network Project | Catalyst 3650 (Packet Tracer)
+!  Role : Core / distribution, VTP server, STP root + HSRP active
+!         for VLAN 10/20/30, WLC + server + network controller attached
+!  Placeholders to replace before pasting: <ADMIN_SECRET>, <NTP_KEY>
+! =====================================================================
+enable
+configure terminal
+!
+! ---------- 1. BASIC SETTINGS ----------
+hostname CORE_SW1
+service password-encryption
+service timestamps log datetime msec
+clock timezone PHT 8 0
+username admin privilege 15 secret <ADMIN_SECRET>
+ip domain-name schoolnetwork.local
+crypto key generate rsa general-keys modulus 2048
+ip ssh version 2
+ip routing
+!
+! ---------- 2. VTP & VLANs (VTP server) ----------
+vtp domain SCHOOL_NET
+vtp mode server
+vlan 10
+ name Management
+vlan 20
+ name Faculty
+vlan 30
+ name Student
+vlan 40
+ name Guests
+vlan 50
+ name Servers/Services
+vlan 60
+ name IoT/Cameras
+vlan 999
+ name PARKING
+exit
+! Native VLAN 111 is intentionally NOT created (unused, untagged traffic goes nowhere)
+!
+! ---------- 3. SPANNING TREE (root for VLAN 10/20/30) ----------
+spanning-tree mode rapid-pvst
+spanning-tree portfast bpduguard default
+spanning-tree vlan 10,20,30 priority 0
+spanning-tree vlan 40,50,60 priority 4096
+!
+! ---------- 4. DHCP SNOOPING ----------
+ip dhcp snooping
+ip dhcp snooping vlan 10,20,30,40,50,60
+no ip dhcp snooping information option
+!
+! ---------- 5. ETHERCHANNEL TO CORE_SW2 (PAgP, Po1) ----------
+! Order matters: join blank ports to the channel first, then configure Po1.
+! Po1 settings are copied to the members. If a member shows (s) "vlan mask
+! is different", apply the same 4 switchport lines to the members too.
+interface range GigabitEthernet1/0/1 - 2
+ channel-protocol pagp
+ channel-group 1 mode desirable
+exit
+interface Port-channel1
+ description ETHERCHANNEL_TO_CORE_SW2
+ switchport mode trunk
+ switchport trunk native vlan 111
+ switchport trunk allowed vlan 10,20,30,40,50,60
+ switchport nonegotiate
+exit
+interface range GigabitEthernet1/0/1 - 2
+ description PO1_MEMBER_TO_CORE_SW2
+ ip dhcp snooping trust
+exit
+!
+! ---------- 6. TRUNKS TO ACCESS SWITCHES ----------
+interface range GigabitEthernet1/0/3 - 6
+ switchport mode trunk
+ switchport trunk native vlan 111
+ switchport trunk allowed vlan 10,20,30,40,50,60
+ switchport nonegotiate
+exit
+interface GigabitEthernet1/0/3
+ description TRUNK_TO_ACCESS-1-MainBldg
+interface GigabitEthernet1/0/4
+ description TRUNK_TO_ACCESS-3-Library
+interface GigabitEthernet1/0/5
+ description TRUNK_TO_ACCESS-2-MainBldg
+interface GigabitEthernet1/0/6
+ description TRUNK_TO_ACCESS-4-Library
+exit
+!
+! ---------- 7. SERVER & MANAGEMENT DEVICES ----------
+interface GigabitEthernet1/0/7
+ description DHCP-DNS-NTP-SERVER
+ switchport mode access
+ switchport access vlan 50
+ spanning-tree portfast
+ ip dhcp snooping trust
+exit
+interface GigabitEthernet1/0/8
+ description NETWORK-CONTROLLER
+ switchport mode access
+ switchport access vlan 10
+ spanning-tree portfast
+exit
+!
+! ---------- 8. WLC UPLINK ----------
+! Native VLAN 10: Packet Tracer's WLC sends management untagged.
+! bpdufilter: the WLC reflects BPDUs (caught by BPDU guard during build).
+! Safe only because the WLC is single-homed - never add a 2nd WLC link with this.
+interface GigabitEthernet1/0/23
+ description TRUNK_TO_WLC-3504
+ switchport mode trunk
+ switchport trunk native vlan 10
+ switchport trunk allowed vlan 10,20,30,40
+ switchport nonegotiate
+ spanning-tree portfast trunk
+ spanning-tree bpdufilter enable
+exit
+!
+! ---------- 9. ROUTED UPLINK TO BORDER ROUTER ----------
+interface GigabitEthernet1/0/24
+ description ROUTED_TO_BORDER_ROUTER
+ no switchport
+ ip address 10.0.0.2 255.255.255.252
+ no shutdown
+exit
+!
+! ---------- 10. UNUSED PORTS (parked + shut) ----------
+interface range GigabitEthernet1/0/9 - 22 , GigabitEthernet1/1/1 - 4
+ description UNUSED_PARKED
+ switchport mode access
+ switchport access vlan 999
+ shutdown
+exit
+!
+! ---------- 11. LOOPBACK ----------
+interface Loopback0
+ description OSPF_ROUTER_ID
+ ip address 2.2.2.2 255.255.255.255
+exit
+!
+! ---------- 12. ACCESS LISTS ----------
+ip access-list extended VLAN20_INBOUND
+ remark DHCP requests
+ permit udp any any eq bootps
+ remark Full access to servers
+ permit ip 10.1.20.0 0.0.0.255 10.1.50.0 0.0.0.255
+ remark Block all other internal networks
+ deny ip 10.1.20.0 0.0.0.255 10.0.0.0 0.255.255.255
+ remark Internet
+ permit ip 10.1.20.0 0.0.0.255 any
+exit
+ip access-list extended VLAN30_INBOUND
+ remark DHCP requests
+ permit udp any any eq bootps
+ remark Allowed internal services on the server
+ permit udp 10.1.30.0 0.0.0.255 host 10.1.50.10 eq domain
+ permit tcp 10.1.30.0 0.0.0.255 10.1.50.0 0.0.0.255 eq www
+ permit tcp 10.1.30.0 0.0.0.255 10.1.50.0 0.0.0.255 eq 443
+ permit tcp 10.1.30.0 0.0.0.255 10.1.50.0 0.0.0.255 eq ftp
+ remark Block all other internal networks
+ deny ip 10.1.30.0 0.0.0.255 10.0.0.0 0.255.255.255
+ remark Internet
+ permit ip 10.1.30.0 0.0.0.255 any
+exit
+ip access-list extended VLAN40_INBOUND
+ remark DHCP requests
+ permit udp any any eq bootps
+ remark DNS only
+ permit udp 10.1.40.0 0.0.0.255 host 10.1.50.10 eq domain
+ remark Block all internal networks
+ deny ip 10.1.40.0 0.0.0.255 10.0.0.0 0.255.255.255
+ remark Internet
+ permit ip 10.1.40.0 0.0.0.255 any
+exit
+ip access-list extended VLAN60_INBOUND
+ remark DHCP requests
+ permit udp any any eq bootps
+ remark Monitoring from management, recording to servers
+ permit ip 10.1.60.0 0.0.0.255 10.1.10.0 0.0.0.255
+ permit ip 10.1.60.0 0.0.0.255 10.1.50.0 0.0.0.255
+ remark HSRP hellos between the cores
+ permit udp host 10.1.60.2 host 224.0.0.102 eq 1985
+ permit udp host 10.1.60.3 host 224.0.0.102 eq 1985
+ remark No internet for IoT
+ deny ip any any
+exit
+ip access-list standard MGMT_ONLY
+ permit 10.1.10.0 0.0.0.255
+exit
+!
+! ---------- 13. SVIs + HSRP (active for 10/20/30) ----------
+interface Vlan1
+ no ip address
+ shutdown
+exit
+interface Vlan10
+ description Management
+ ip address 10.1.10.2 255.255.255.0
+ ip helper-address 10.1.50.10
+ standby version 2
+ standby 10 ip 10.1.10.1
+ standby 10 priority 110
+ standby 10 preempt
+ no shutdown
+exit
+interface Vlan20
+ description Faculty
+ ip address 10.1.20.2 255.255.255.0
+ ip helper-address 10.1.50.10
+ ip access-group VLAN20_INBOUND in
+ standby version 2
+ standby 20 ip 10.1.20.1
+ standby 20 priority 110
+ standby 20 preempt
+ no shutdown
+exit
+interface Vlan30
+ description Students
+ ip address 10.1.30.2 255.255.255.0
+ ip helper-address 10.1.50.10
+ ip access-group VLAN30_INBOUND in
+ standby version 2
+ standby 30 ip 10.1.30.1
+ standby 30 priority 110
+ standby 30 preempt
+ no shutdown
+exit
+interface Vlan40
+ description Guests
+ ip address 10.1.40.2 255.255.255.0
+ ip helper-address 10.1.50.10
+ ip access-group VLAN40_INBOUND in
+ standby version 2
+ standby 40 ip 10.1.40.1
+ no shutdown
+exit
+interface Vlan50
+ description Servers/Services
+ ip address 10.1.50.2 255.255.255.0
+ ip helper-address 10.1.50.10
+ standby version 2
+ standby 50 ip 10.1.50.1
+ no shutdown
+exit
+interface Vlan60
+ description IoT/Cameras
+ ip address 10.1.60.2 255.255.255.0
+ ip helper-address 10.1.50.10
+ ip access-group VLAN60_INBOUND in
+ standby version 2
+ standby 60 ip 10.1.60.1
+ no shutdown
+exit
+!
+! ---------- 14. OSPF ----------
+! Passive everywhere except the border uplink and one core-to-core adjacency (Vlan10)
+router ospf 1
+ router-id 2.2.2.2
+ log-adjacency-changes
+ passive-interface default
+ no passive-interface GigabitEthernet1/0/24
+ no passive-interface Vlan10
+ network 10.0.0.0 0.0.0.3 area 0
+ network 10.1.10.0 0.0.0.255 area 0
+ network 10.1.20.0 0.0.0.255 area 0
+ network 10.1.30.0 0.0.0.255 area 0
+ network 10.1.40.0 0.0.0.255 area 0
+ network 10.1.50.0 0.0.0.255 area 0
+ network 10.1.60.0 0.0.0.255 area 0
+ network 2.2.2.2 0.0.0.0 area 0
+exit
+!
+! ---------- 15. NTP (server holds UTC, device converts to PHT) ----------
+ntp authentication-key 1 md5 <NTP_KEY>
+ntp authenticate
+ntp trusted-key 1
+ntp server 10.1.50.10 key 1
+!
+! ---------- 16. CONSOLE & SSH ACCESS ----------
+line con 0
+ login local
+ exec-timeout 10 0
+line vty 0 15
+ access-class MGMT_ONLY in
+ login local
+ transport input ssh
+ exec-timeout 10 0
+exit
+!
+end
+write memory
